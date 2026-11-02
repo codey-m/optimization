@@ -20,7 +20,7 @@ What the patch changes:
   any learner runtime.
 - **Headers-only Boost for CI**: when `BOOST_INCLUDEDIR` is set, CMake uses those headers directly instead of looking
   for Boost's CMake package; otherwise the upstream lookup is unchanged.
-- **Version** `0.0.1+corner1`, so the wheel's name says it is the patched build.
+- **Version** `0.0.1.post1`, so the patched build has its own name. (A `+` local version would be renamed by GitHub on a release asset, and pip would then refuse the file.)
 
 `smoke_test.py` is the test CI runs against every wheel: the lab's game has 46,824 and 29,435 information sets and
 a uniform NashConv of 1.2720238.

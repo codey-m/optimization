@@ -160,7 +160,7 @@ index e11e3b9..8571bb3 100644
  template struct Traverser<PtttState<true>>;
 +template struct Traverser<CornerAbruptPtttState>;
 diff --git a/pyproject.toml b/pyproject.toml
-index 425aadc..dfdc01c 100644
+index 425aadc..2dedd2f 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -5,7 +5,7 @@ build-backend = "scikit_build_core.build"
@@ -168,7 +168,7 @@ index 425aadc..dfdc01c 100644
  [project]
  name = "eas"
 -version = "0.0.1"
-+version = "0.0.1+corner1"
++version = "0.0.1.post1"
  description = "exp-a-spiel"
  readme = "README.md"
  authors = [{ name = "Gabriele Farina", email = "gfarina@mit.edu" }]
