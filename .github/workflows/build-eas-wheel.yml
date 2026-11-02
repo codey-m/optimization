@@ -1,0 +1,61 @@
+# Builds exp-a-spiel (upstream commit below) with third_party/exp-a-spiel/corner_pttt.patch into Linux wheels.
+# Run it by hand to test a build; push a tag eas-v* to publish the wheels on that tag's release.
+# Never move a published tag: the lab notebook pins each wheel's SHA-256.
+name: Build the exp-a-spiel wheel
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["eas-v*"]
+
+permissions:
+  contents: write
+
+env:
+  EAS_UPSTREAM: https://github.com/gabrfarina/exp-a-spiel
+  EAS_COMMIT: 9412882c24e521fad7cbd96fdd68311d9bf6f203
+
+jobs:
+  wheels:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch upstream and apply the patch
+        run: |
+          git clone "$EAS_UPSTREAM" eas-src
+          git -C eas-src checkout "$EAS_COMMIT"
+          git -C eas-src apply "$GITHUB_WORKSPACE/third_party/exp-a-spiel/corner_pttt.patch"
+          cp third_party/exp-a-spiel/LICENSE eas-src/LICENSE
+
+      - name: Build and test the wheels
+        uses: pypa/cibuildwheel@v2.22.0
+        with:
+          package-dir: eas-src
+          output-dir: wheelhouse
+        env:
+          CIBW_BUILD: "cp310-manylinux_x86_64 cp311-manylinux_x86_64 cp312-manylinux_x86_64 cp313-manylinux_x86_64"
+          CIBW_MANYLINUX_X86_64_IMAGE: manylinux_2_28
+          CIBW_BEFORE_ALL_LINUX: >
+            curl -sSL -o /tmp/boost.tar.bz2 https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.bz2 &&
+            echo "1bed88e40401b2cb7a1f76d4bab499e352fa4d0c5f31c0dbae64e24d34d7513b  /tmp/boost.tar.bz2" | sha256sum -c - &&
+            tar -xjf /tmp/boost.tar.bz2 -C /opt boost_1_86_0/boost
+          CIBW_ENVIRONMENT_LINUX: BOOST_INCLUDEDIR=/opt/boost_1_86_0 SKBUILD_CMAKE_VERSION='>=3.29'
+          CIBW_TEST_REQUIRES: numpy
+          CIBW_TEST_COMMAND: python {project}/third_party/exp-a-spiel/smoke_test.py
+
+      - name: Record digests
+        run: cd wheelhouse && sha256sum *.whl > SHA256SUMS && cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eas-wheels
+          path: wheelhouse/
+
+      - name: Publish on the tag's release
+        if: startsWith(github.ref, 'refs/tags/eas-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            wheelhouse/*.whl
+            wheelhouse/SHA256SUMS

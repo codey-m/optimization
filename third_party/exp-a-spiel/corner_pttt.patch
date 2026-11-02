@@ -1,0 +1,174 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index c0541a7..3792f09 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -12,11 +12,17 @@ set(CMAKE_CXX_STANDARD 20)
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+ find_package(Python REQUIRED COMPONENTS Interpreter Development.Module)
+ find_package(pybind11 REQUIRED)
+-find_package(Boost REQUIRED COMPONENTS headers)
++if(DEFINED ENV{BOOST_INCLUDEDIR})
++  add_library(Boost::boost INTERFACE IMPORTED)
++  set_target_properties(Boost::boost PROPERTIES INTERFACE_INCLUDE_DIRECTORIES "$ENV{BOOST_INCLUDEDIR}")
++  set(Boost_INCLUDE_DIRS "$ENV{BOOST_INCLUDEDIR}")
++else()
++  find_package(Boost REQUIRED COMPONENTS headers)
++endif()
+ message(STATUS "Found boost: ${Boost_FOUND} ${Boost_VERSION}")
+ message(STATUS "Boost include dir: ${Boost_INCLUDE_DIRS}")
+ 
+-set(CMAKE_CXX_FLAGS "-fopenmp -Wall -Wextra -Wfatal-errors -march=native -fPIC")
++set(CMAKE_CXX_FLAGS "-fopenmp -Wall -Wextra -Wfatal-errors -march=x86-64-v2 -fPIC")
+ 
+ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_DEBUG -DDEBUG -O2 -fno-omit-frame-pointer -g -fvisibility=hidden")
+diff --git a/csrc/bindings.cpp b/csrc/bindings.cpp
+index fa44fdc..162f4b9 100644
+--- a/csrc/bindings.cpp
++++ b/csrc/bindings.cpp
+@@ -391,4 +391,37 @@ PYBIND11_MODULE(pyeas, m) {
+   register_types<CornerDhState>(m, "CornerDh");
+   register_types<PtttState<false>>(m, "Pttt");
+   register_types<PtttState<true>>(m, "AbruptPttt");
++  register_types<CornerAbruptPtttState>(m, "CornerAbruptPttt");
++
++  m.def(
++      "set_pttt_opening",
++      [](const std::vector<int> &p0, const std::vector<int> &p1, bool masked) {
++        if (p0.size() != p1.size() || p0.empty() || p0.size() > 2)
++          throw std::invalid_argument("give 1 or 2 cells per player, the same number each");
++        bool used[9] = {false};
++        for (const auto *cells : {&p0, &p1})
++          for (int c : *cells) {
++            if (c < 0 || c > 8 || used[c])
++              throw std::invalid_argument("cells must be distinct and in 0..8");
++            used[c] = true;
++          }
++        PtttOpening o;
++        o.n = uint8_t(p0.size());
++        for (size_t k = 0; k < p0.size(); ++k) {
++          o.cells[0][k] = uint8_t(p0[k]);
++          o.cells[1][k] = uint8_t(p1[k]);
++        }
++        o.masked = masked;
++        g_pttt_opening = o;
++      },
++      py::arg("p0_cells"), py::arg("p1_cells"), py::arg("masked") = true);
++  m.def("get_pttt_opening", []() {
++    const PtttOpening &o = g_pttt_opening;
++    std::vector<int> p0, p1;
++    for (uint8_t k = 0; k < o.n; ++k) {
++      p0.push_back(o.cells[0][k]);
++      p1.push_back(o.cells[1][k]);
++    }
++    return py::make_tuple(p0, p1, o.masked);
++  });
+ }
+diff --git a/csrc/cfr.cpp b/csrc/cfr.cpp
+index 13c4ad6..13d9adc 100644
+--- a/csrc/cfr.cpp
++++ b/csrc/cfr.cpp
+@@ -147,4 +147,5 @@ template class CfrSolver<DhState<false>>;
+ template class CfrSolver<DhState<true>>;
+ template class CfrSolver<CornerDhState>;
+ template class CfrSolver<PtttState<false>>;
+-template class CfrSolver<PtttState<true>>;
+\ No newline at end of file
++template class CfrSolver<PtttState<true>>;
++template class CfrSolver<CornerAbruptPtttState>;
+\ No newline at end of file
+diff --git a/csrc/log.h b/csrc/log.h
+index ddc8286..7481a48 100644
+--- a/csrc/log.h
++++ b/csrc/log.h
+@@ -3,6 +3,7 @@
+ #include <cinttypes>
+ #include <cmath>
+ #include <cstdio>
++#include <cstdlib>
+ #include <ctime>
+ #include <unistd.h>
+ 
+@@ -34,8 +35,13 @@ void _PrintMsSinceEpoch() {
+   (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
+ #endif
+ 
++inline bool _EasVerbose() {
++  static const bool verbose = std::getenv("EAS_VERBOSE") != nullptr;
++  return verbose;
++}
++
+ #define INFO(...)                                                              \
+-  {                                                                            \
++  if (_EasVerbose()) {                                                         \
+     _PrintMsSinceEpoch();                                                      \
+     printf("|>%s] [%s:%03d] ",                                                 \
+            isatty(fileno(stdout)) ? "\033[32mINFO\033[0m" : "INFO",            \
+diff --git a/csrc/pttt_state.h b/csrc/pttt_state.h
+index 8e09a43..18b58da 100644
+--- a/csrc/pttt_state.h
++++ b/csrc/pttt_state.h
+@@ -105,3 +105,41 @@ struct PtttState : public BaseState<abrupt> {
+     }
+   }
+ };
++
++// Abrupt PTTT with a fixed, commonly known opening, as CornerDh does for Dark
++// Hex: each player's first n moves (n = 1 or 2) are pre-placed, all successful,
++// in the order P0, P1, P0, P1. If masked, a player may not probe a cell the
++// opponent holds from the opening. The opening is read when a state is
++// constructed, so set it with set_pttt_opening() before building a traverser,
++// and use one opening per process.
++struct PtttOpening {
++  uint8_t n = 1;
++  uint8_t cells[2][2] = {{4, 2}, {0, 8}};
++  bool masked = true;
++};
++inline PtttOpening g_pttt_opening;
++
++struct CornerAbruptPtttState : public PtttState<true> {
++  uint16_t opp_held[2] = {0, 0}; // cells held from the opening by p's opponent
++  bool masked = true;
++
++  CornerAbruptPtttState() : PtttState<true>() {
++    const PtttOpening &o = g_pttt_opening;
++    for (uint8_t k = 0; k < o.n; ++k) {
++      for (uint8_t q = 0; q < 2; ++q) {
++        this->x[q][o.cells[q][k]] = ((k + 1) << 1) + 1;
++        opp_held[q ^ 1] |= uint16_t(1u << o.cells[q][k]);
++      }
++    }
++    this->t[0] = o.n;
++    this->t[1] = o.n;
++    masked = o.masked;
++  }
++
++  uint32_t available_actions() const {
++    uint32_t ans = PtttState<true>::available_actions();
++    if (masked)
++      ans &= ~uint32_t(opp_held[this->player()]);
++    return ans;
++  }
++};
+diff --git a/csrc/traverser.cpp b/csrc/traverser.cpp
+index e11e3b9..8571bb3 100644
+--- a/csrc/traverser.cpp
++++ b/csrc/traverser.cpp
+@@ -532,3 +532,4 @@ template struct Traverser<DhState<true>>;
+ template struct Traverser<CornerDhState>;
+ template struct Traverser<PtttState<false>>;
+ template struct Traverser<PtttState<true>>;
++template struct Traverser<CornerAbruptPtttState>;
+diff --git a/pyproject.toml b/pyproject.toml
+index 425aadc..dfdc01c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -5,7 +5,7 @@ build-backend = "scikit_build_core.build"
+ 
+ [project]
+ name = "eas"
+-version = "0.0.1"
++version = "0.0.1+corner1"
+ description = "exp-a-spiel"
+ readme = "README.md"
+ authors = [{ name = "Gabriele Farina", email = "gfarina@mit.edu" }]
