@@ -24,7 +24,8 @@ supports, and what stays fixed in a next experiment. Exploitability is reported,
 ## Lab runtime notes
 
 - **Lab 4** runs on CPU threads; a GPU adds nothing. Its game, phantom tic-tac-toe with both opening moves fixed,
-  has 76,259 information sets, and one traversal takes well under a second.
+  has 76,259 information sets. On free Colab one traversal with the learner's own functions takes about a
+  second, and the notebook's computation about 15 minutes in all.
 - The submission is the average strategy from the learner's issued run, in the format of the original course
   challenge: a zipped NumPy array, one row per information set, nine columns.
 

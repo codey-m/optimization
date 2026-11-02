@@ -329,11 +329,16 @@ def print_ladder(runs, game, best_response_value, current=False):
 
 
 def print_head_to_head(names, field, nash):
-    """Strategies ranked by their mean head-to-head result, with each one's NashConv and its rank by NashConv."""
+    """Strategies ranked by their mean head-to-head result against the others, with each one's NashConv.
+
+    Two columns rescale to net points per 100 games, a win counting +1, a loss -1 and a draw 0: the strategy's own
+    result against the field, and a best responder's result against the strategy over 100 games, 50 in each seat.
+    The second is 50 x NashConv, because NashConv adds the best responder's gains in the two seats."""
     by_nash = {n: r for r, n in enumerate(sorted(names, key=lambda n: nash[n]), 1)}
-    print(f"{'rank':>4}  {'strategy':10}{'mean head-to-head':>19}{'NashConv':>11}{'rank by NashConv':>18}")
+    print(f"{'':16}{'against the field,':>20}{'':10}{'best responder,':>18}")
+    print(f"{'rank':>4}  {'strategy':10}{'per 100 games':>20}{'NashConv':>10}{'per 100 games':>18}{'rank by NashConv':>18}")
     for r, n in enumerate(sorted(names, key=lambda n: -field[n]), 1):
-        print(f"{r:>4}  {n:10}{field[n]:>+19.4f}{nash[n]:>11.4f}{by_nash[n]:>18}")
+        print(f"{r:>4}  {n:10}{100 * field[n]:>+20.2f}{nash[n]:>10.4f}{50 * nash[n]:>+18.2f}{by_nash[n]:>18}")
 
 
 def plot_runs(runs, game, best_response_value, title):
